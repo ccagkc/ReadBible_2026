@@ -114,35 +114,20 @@
                 return grid;
             };
 
-            useEffect(() => {
-                // 防當機保護：安全讀取 LocalStorage
+useEffect(() => {
+                // 讀取本地進度
                 try {
                     const saved = localStorage.getItem('kc-bible-2026');
                     if (saved) setCompleted(JSON.parse(saved));
-                } catch (e) {
-                    console.warn("無法存取瀏覽器紀錄，將無法儲存閱讀進度。");
-                }
+                } catch (e) { }
 
                 const fetchData = async () => {
                     try {
                         const csvUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(SHEET_NAME)}`;
                         const resp = await fetch(csvUrl);
-                        if (!resp.ok) throw new Error("網路連線被拒絕，請確認 Google Sheet 是否已「發佈到網路」。");
-                        
                         const text = await resp.text();
                         
-                        // 防呆：如果回傳的是 Google 登入頁的 HTML
-                        if (text.trim().toLowerCase().startsWith('<!doctype html>')) {
-                            throw new Error(`找不到資料表。請檢查工作表名稱是否精確為「${SHEET_NAME}」，或權限是否正確。`);
-                        }
-
                         const rows = parseCSV(text);
-                        
-                        // 防呆：保護 rows[0] 未定義導致的崩潰
-                        if (!rows || rows.length === 0 || !rows[0]) {
-                            throw new Error("試算表內沒有資料。");
-                        }
-
                         const headers = rows[0].map(h => h.trim());
                         const items = {};
                         
@@ -163,22 +148,17 @@
                                 if(!isNaN(d)) items[formatDate(d)] = item;
                             }
                         }
-                        
-                        if (Object.keys(items).length === 0) {
-                            console.warn("解析完成，但找不到任何對應日期的資料。請檢查「日期」標題字眼是否正確。");
-                        }
-                        
                         setData(items);
                     } catch (e) {
-                        console.error("載入失敗:", e);
-                        setErrorMsg(e.message); // 將錯誤顯示到畫面上
+                        // 移除畫面的錯誤提示，只保留在開發者工具(Console)中顯示以備不時之需
+                        console.error("資料載入失敗:", e);
                     } finally {
                         setLoading(false);
                     }
                 };
                 fetchData();
             }, []);
-
+                        
             const toggleFinish = (d) => {
                 try {
                     const next = completed.includes(d) ? completed.filter(x => x!==d) : [...completed, d];
@@ -195,27 +175,6 @@
                 if (dir === 'n' && idx < validDates.length - 1) setSelectedDate(validDates[idx+1]);
                 window.scrollTo(0,0);
             };
-
-            // === 錯誤處理畫面 ===
-            if (errorMsg) {
-                return (
-                    <div className="flex flex-col items-center justify-center min-h-screen bg-red-50 text-red-800 p-6 font-sans">
-                        <div className="bg-white p-8 rounded-3xl shadow-xl max-w-lg w-full text-center border-t-8 border-red-500">
-                            <i className="fa-solid fa-triangle-exclamation text-6xl text-red-500 mb-6"></i>
-                            <h2 className="text-2xl font-bold mb-4 text-gray-800">資料庫連線異常</h2>
-                            <p className="text-left bg-red-50 p-4 rounded-xl text-red-700 font-medium mb-6 border border-red-100 break-words">{errorMsg}</p>
-                            <div className="text-left text-gray-600 text-sm space-y-2">
-                                <p className="font-bold">行政人員請檢查以下三點：</p>
-                                <ol className="list-decimal list-inside space-y-1">
-                                    <li>Google Sheet 是否已點擊 <b>「檔案」>「共用」>「發佈到網路」</b></li>
-                                    <li>試算表左下角的分頁名稱是否為 <b>{SHEET_NAME}</b></li>
-                                    <li>第一列的標題是否包含無空格的 <b>日期</b> 兩字</li>
-                                </ol>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
 
             if (loading) return (
                 <div className="flex flex-col items-center justify-center h-screen text-nature-600 bg-nature-50">
