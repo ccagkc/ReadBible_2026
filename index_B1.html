@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>葵涌堂 2026年讀經計劃</title>
+    
+    <!-- Tailwind CSS (現代化樣式) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        nature: {
+                            50: '#f0fdf4',
+                            100: '#dcfce7',
+                            200: '#bbf7d0',
+                            500: '#22c55e',
+                            600: '#16a34a',
+                            700: '#15803d',
+                            800: '#166534',
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    <!-- Babel for in-browser JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- SheetJS for reading Excel (.xlsx) files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-nature-50 text-gray-800 font-sans antialiased min-h-screen">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+
+        // --- 核心設定與工具函數 ---
+        const START_DATE = new Date(2026, 5, 1); // 2026年6月1日 (本地時間，月份從0開始)
+        const END_DATE = new Date(2026, 9, 2);  // 2026年10月2日 (本地時間)
+
+        // 將日期格式化為 YYYY-MM-DD
+        const formatDate = (date) => {
+            const d = new Date(date);
+            const month = '' + (d.getMonth() + 1);
+            const day = '' + d.getDate();
+            const year = d.getFullYear();
+            return [year, month.padStart(2, '0'), day.padStart(2, '0')].join('-');
+        };
+
+        // 判斷是否為週末 (星期六=6, 星期日=0)
+        const isWeekend = (date) => {
+            const day = date.getDay();
+            return day === 0 || day === 6;
+        };
+
+        // 轉換 Google Drive 連結或直接連結
+        const getAudioInfo = (url) => {
+            if (!url) return null;
+            // 解析 Google Drive 檔案 ID
+            const fileIdMatch = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (fileIdMatch && fileIdMatch[1]) {
+                return {
+                    type: 'gdrive',
+                    // 使用官方支援的預覽 iframe 模式
+                    src: `https://drive.google.com/file/d/${fileIdMatch[1]}/preview`
+                };
+            }
+            return {
+                type: 'direct',
+                src: url
+            };
+        };
+
+        // 產生指定月份的日曆陣列
+        const generateCalendarGrid = (year, month) => {
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const startingDayOfWeek = firstDay.getDay(); 
+            const daysInMonth = lastDay.getDate();
+            
+            let grid = [];
+            let currentWeek = new Array(7).fill(null);
+            
+            // 填補月初的空白
+            for (let i = 0; i < startingDayOfWeek; i++) {
+                currentWeek[i] = null;
+            }
+            
+            for (let day = 1; day <= daysInMonth; day++) {
+                const currentDate = new Date(year, month, day);
+                const dayOfWeek = currentDate.getDay();
+                
+                currentWeek[dayOfWeek] = currentDate;
+                
+                if (dayOfWeek === 6 || day === daysInMonth) {
+                    grid.push(currentWeek);
+                    currentWeek = new Array(7).fill(null);
+                }
+            }
+            return grid;
+        };
+
+        // --- Mock Data (備用測試資料，當找不到 Excel 時使用) ---
+        const getMockData = () => {
+            const data = {};
+            data['2026-06-01'] = { 日期: '2026-06-01', 經卷: '羅馬書', 章節: '1:1-7', 經文: '耶穌基督的僕人保羅，奉召為使徒，特派傳神的福音... (測試經文)', 釋義: '保羅在羅馬書的開頭，首先確立了自己作為使徒的權柄，並指出這福音是神從前藉眾先知在聖經上所應許的。', 語音連結: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' };
+            data['2026-06-02'] = { 日期: '2026-06-02', 經卷: '羅馬書', 章節: '1:8-15', 經文: '第一，我靠著耶穌基督，為你們眾人感謝我的神，因你們的信德傳遍了天下... (測試經文)', 釋義: '這段經文表達了保羅對羅馬教會的關心與代禱，以及他渴望切切見到他們，為要將一些屬靈的恩賜分給他們。', 語音連結: 'https://drive.google.com/file/d/1HqrwdrlsRsbml73BDRBar2zhs106VyLm/view?usp=sharing' };
+            data['2026-06-03'] = { 日期: '2026-06-03', 經卷: '羅馬書', 章節: '1:16-17', 經文: '我不以福音為恥；這福音本是神的大能，要救一切相信的，先是猶太人，後是希臘人... (測試經文)', 釋義: '這是羅馬書的主題：福音是神的大能。因信稱義的真理在此被清晰地宣告出來。', 語音連結: 'https://drive.google.com/file/d/1H8gKSSFDQ0-KKrGGwYo2tNTj1krt9UP4/view?usp=drive_link' };
+            return data;
+        };
+
+        // --- 主程式組件 ---
+        const App = () => {
+            const [view, setView] = useState('calendar'); // 'calendar' or 'reader'
+            const [selectedDate, setSelectedDate] = useState(null);
+            const [readingData, setReadingData] = useState({});
+            const [completedDates, setCompletedDates] = useState([]);
+            const [isLoading, setIsLoading] = useState(true);
+
+            // 預先計算所有有效的讀經日期 (排除週末)
+            const validDates = useMemo(() => {
+                const dates = [];
+                let current = new Date(START_DATE);
+                while (current <= END_DATE) {
+                    if (!isWeekend(current)) {
+                        dates.push(formatDate(current));
+                    }
+                    current.setDate(current.getDate() + 1);
+                }
+                return dates;
+            }, []);
+
+            // 初始化：讀取 LocalStorage 與 Excel 資料
+            useEffect(() => {
+                // 1. 讀取進度
+                const savedProgress = localStorage.getItem('kc-bible-progress-2026');
+                if (savedProgress) {
+                    setCompletedDates(JSON.parse(savedProgress));
+                }
+
+                // 2. 讀取 Excel (若失敗則載入 Mock Data)
+                const loadData = async () => {
+                    try {
+                        const response = await fetch('data.xlsx');
+                        if (!response.ok) throw new Error('Excel 檔案未找到');
+                        
+                        const arrayBuffer = await response.arrayBuffer();
+                        const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+                        const firstSheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[firstSheetName];
+                        const json = XLSX.utils.sheet_to_json(worksheet, { raw: false });
+                        
+                        const parsedData = {};
+                        json.forEach(row => {
+                            // 嘗試解析日期，確保格式一致
+                            let rowDateStr = row['日期'];
+                            if(rowDateStr) {
+                                // 簡單處理可能出現的不同 Excel 日期字串
+                                const d = new Date(rowDateStr);
+                                if(!isNaN(d)) {
+                                    parsedData[formatDate(d)] = row;
+                                } else {
+                                    parsedData[rowDateStr] = row; // fallback
+                                }
+                            }
+                        });
+                        setReadingData(parsedData);
+                    } catch (error) {
+                        console.warn("無法讀取外部 data.xlsx，載入測試資料 (Mock Data)。");
+                        setReadingData(getMockData());
+                    } finally {
+                        setIsLoading(false);
+                    }
+                };
+
+                loadData();
+            }, []);
+
+            // 處理完成狀態切換
+            const toggleCompletion = (dateStr) => {
+                let updated;
+                if (completedDates.includes(dateStr)) {
+                    updated = completedDates.filter(d => d !== dateStr);
+                } else {
+                    updated = [...completedDates, dateStr];
+                }
+                setCompletedDates(updated);
+                localStorage.setItem('kc-bible-progress-2026', JSON.stringify(updated));
+            };
+
+            // 導航函數
+            const goReader = (dateStr) => {
+                setSelectedDate(dateStr);
+                setView('reader');
+                window.scrollTo(0, 0);
+            };
+
+            const goCalendar = () => {
+                setView('calendar');
+                window.scrollTo(0, 0);
+            };
+
+            const navigateDay = (direction) => {
+                const currentIndex = validDates.indexOf(selectedDate);
+                if (direction === 'prev' && currentIndex > 0) {
+                    goReader(validDates[currentIndex - 1]);
+                } else if (direction === 'next' && currentIndex < validDates.length - 1) {
+                    goReader(validDates[currentIndex + 1]);
+                }
+            };
+
+            // --- 視圖：行事曆 ---
+            const CalendarView = () => {
+                const months = [
+                    { year: 2026, month: 5, label: '六月' }, // JS Date month is 0-indexed
+                    { year: 2026, month: 6, label: '七月' },
+                    { year: 2026, month: 7, label: '八月' },
+                    { year: 2026, month: 8, label: '九月' },
+                    { year: 2026, month: 9, label: '十月' }
+                ];
+
+                return (
+                    <div className="max-w-5xl mx-auto p-4 pb-20">
+                        {months.map((m, idx) => (
+                            <div key={idx} className="mb-10 bg-white rounded-2xl shadow-sm border border-nature-100 overflow-hidden">
+                                <div className="bg-nature-600 text-white text-center py-3 font-bold text-lg tracking-wider">
+                                    2026年 {m.label}
+                                </div>
+                                <div className="p-4">
+                                    <div className="grid grid-cols-7 gap-1 md:gap-2 mb-2">
+                                        {['日', '一', '二', '三', '四', '五', '六'].map(day => (
+                                            <div key={day} className="text-center font-medium text-gray-500 text-xs md:text-sm py-2">
+                                                {day}
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <div className="grid grid-cols-7 gap-1 md:gap-2">
+                                        {generateCalendarGrid(m.year, m.month).map((week, wIdx) => (
+                                            week.map((date, dIdx) => {
+                                                if (!date) return <div key={`${wIdx}-${dIdx}`} className="p-2"></div>;
+                                                
+                                                const dateStr = formatDate(date);
+                                                const isValid = validDates.includes(dateStr);
+                                                const isCompleted = completedDates.includes(dateStr);
+                                                
+                                                // 檢查是否超出計畫範圍 (防呆)
+                                                const isOutOfRange = date < START_DATE || date > END_DATE;
+
+                                                if (isWeekend(date) || isOutOfRange) {
+                                                    return (
+                                                        <div key={dateStr} className="flex flex-col items-center justify-center p-2 rounded-lg bg-gray-50 text-gray-300 text-sm md:text-base h-16 md:h-20">
+                                                            {date.getDate()}
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return (
+                                                    <button 
+                                                        key={dateStr}
+                                                        onClick={() => goReader(dateStr)}
+                                                        className={`relative flex flex-col items-center justify-center p-2 rounded-xl transition-all duration-300 h-16 md:h-20 hover:shadow-md hover:-translate-y-1 ${
+                                                            isCompleted 
+                                                            ? 'bg-nature-100 border-2 border-nature-500 text-nature-800' 
+                                                            : 'bg-white border border-gray-200 text-gray-700 hover:border-nature-500'
+                                                        }`}
+                                                    >
+                                                        <span className="text-lg md:text-xl font-semibold z-10">{date.getDate()}</span>
+                                                        {isCompleted && (
+                                                            <i className="fa-solid fa-check text-nature-600 text-xs md:text-sm mt-1 z-10"></i>
+                                                        )}
+                                                    </button>
+                                                );
+                                            })
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                );
+            };
+
+            // --- 視圖：閱讀頁面 ---
+            const ReaderView = () => {
+                const data = readingData[selectedDate] || {};
+                const isCompleted = completedDates.includes(selectedDate);
+                const currentIndex = validDates.indexOf(selectedDate);
+                
+                const hasPrev = currentIndex > 0;
+                const hasNext = currentIndex < validDates.length - 1;
+
+                const displayDate = new Date(selectedDate).toLocaleDateString('zh-HK', { 
+                    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' 
+                });
+
+                const audioInfo = getAudioInfo(data['語音連結']);
+
+                return (
+                    <div className="max-w-3xl mx-auto p-4 pb-24">
+                        {/* 頂部導航與日期 */}
+                        <div className="flex items-center justify-between mb-6">
+                            <button onClick={goCalendar} className="text-nature-700 hover:text-nature-500 font-medium transition flex items-center bg-white px-4 py-2 rounded-full shadow-sm border border-nature-100">
+                                <i className="fa-solid fa-arrow-left mr-2"></i> 返回月曆
+                            </button>
+                            <span className="text-gray-500 text-sm md:text-base font-medium">{displayDate}</span>
+                        </div>
+
+                        {/* 主要內容卡片 */}
+                        <div className="bg-white rounded-3xl shadow-lg border border-nature-100 overflow-hidden mb-8">
+                            {/* 標題區 */}
+                            <div className="bg-nature-700 text-white p-6 md:p-8 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 opacity-10">
+                                    <i className="fa-solid fa-leaf text-9xl -mt-6 -mr-6"></i>
+                                </div>
+                                <h2 className="text-xl md:text-2xl font-light text-nature-100 mb-1">今日經文</h2>
+                                <h1 className="text-3xl md:text-4xl font-bold tracking-wide">
+                                {data['經卷'] ? `${data['經卷']} ${data['章節']}` : '內容準備中'}
+                            </h1>
+                        </div>
+
+                        <div className="p-6 md:p-8">
+                            {/* 語音播放器 (如有) */}
+                            {audioInfo && (
+                                <div className="mb-8">
+                                    <div className="flex items-center mb-4">
+                                        <h3 className="text-lg font-bold text-nature-800 border-l-4 border-nature-500 pl-3">聆聽經文</h3>
+                                    </div>
+                                    
+                                    {audioInfo.type === 'gdrive' ? (
+                                        <div className="bg-nature-50 rounded-2xl border border-nature-200 overflow-hidden shadow-sm h-[140px] flex items-center justify-center">
+                                            {/* Google Drive 官方播放器嵌入 */}
+                                            <iframe 
+                                                src={audioInfo.src} 
+                                                width="100%" 
+                                                height="140" 
+                                                allow="autoplay"
+                                                className="border-0"
+                                            ></iframe>
+                                        </div>
+                                    ) : (
+                                        <div className="bg-nature-50 rounded-2xl p-4 border border-nature-100 flex items-center shadow-inner">
+                                            <div className="bg-nature-500 text-white w-10 h-10 rounded-full flex items-center justify-center mr-4 shrink-0 shadow-sm">
+                                                <i className="fa-solid fa-headphones"></i>
+                                            </div>
+                                            <audio key={audioInfo.src} controls className="w-full h-10 outline-none">
+                                                <source src={audioInfo.src} />
+                                                您的瀏覽器不支援語音播放。
+                                            </audio>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* 經文內容 */}
+                            <div className="mb-10">
+                                    <div className="flex items-center mb-4">
+                                        <h3 className="text-lg font-bold text-nature-800 border-l-4 border-nature-500 pl-3">聖經經文 (和合本修訂版)</h3>
+                                    </div>
+                                    <div className="text-lg md:text-xl leading-loose text-gray-800 whitespace-pre-wrap font-serif">
+                                        {data['經文'] || '暫無資料，請確認 Excel 檔案是否包含此日期內容。'}
+                                    </div>
+                                </div>
+
+                                <hr className="border-gray-100 mb-8" />
+
+                                {/* 經文釋義 */}
+                                <div>
+                                    <div className="flex items-center mb-4">
+                                        <h3 className="text-lg font-bold text-nature-800 border-l-4 border-nature-500 pl-3">簡短釋義</h3>
+                                    </div>
+                                    <div className="text-base md:text-lg leading-relaxed text-gray-600 bg-gray-50 rounded-xl p-5 border border-gray-100 whitespace-pre-wrap">
+                                        {data['釋義'] || '暫無釋義資料。'}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 完成進度與底部導航 */}
+                        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                            <button 
+                                onClick={() => toggleCompletion(selectedDate)}
+                                className={`w-full md:w-auto px-8 py-4 rounded-full text-lg font-bold transition-all shadow-md transform hover:scale-105 flex items-center justify-center ${
+                                    isCompleted 
+                                    ? 'bg-nature-100 text-nature-800 border-2 border-nature-500' 
+                                    : 'bg-nature-600 text-white hover:bg-nature-500'
+                                }`}
+                            >
+                                <i className={`fa-solid mr-2 ${isCompleted ? 'fa-check-circle text-xl' : 'fa-circle text-xl'}`}></i>
+                                {isCompleted ? '已完成閱讀' : '標記為已讀'}
+                            </button>
+
+                            <div className="flex gap-2 w-full md:w-auto">
+                                <button 
+                                    onClick={() => navigateDay('prev')} 
+                                    disabled={!hasPrev}
+                                    className={`flex-1 md:flex-none px-6 py-3 rounded-full font-medium transition flex items-center justify-center border ${
+                                        hasPrev 
+                                        ? 'bg-white border-nature-200 text-nature-700 hover:bg-nature-50' 
+                                        : 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
+                                    }`}
+                                >
+                                    <i className="fa-solid fa-chevron-left mr-2"></i> 上一篇
+                                </button>
+                                <button 
+                                    onClick={() => navigateDay('next')} 
+                                    disabled={!hasNext}
+                                    className={`flex-1 md:flex-none px-6 py-3 rounded-full font-medium transition flex items-center justify-center border ${
+                                        hasNext 
+                                        ? 'bg-white border-nature-200 text-nature-700 hover:bg-nature-50' 
+                                        : 'bg-gray-50 border-gray-100 text-gray-300 cursor-not-allowed'
+                                    }`}
+                                >
+                                    下一篇 <i className="fa-solid fa-chevron-right ml-2"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            // --- 網頁骨架佈局 ---
+            return (
+                <div className="min-h-screen">
+                    {/* 全域標頭 */}
+                    <header className="bg-gradient-to-r from-nature-800 to-nature-600 text-white shadow-md relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+                        <div className="max-w-5xl mx-auto px-4 py-8 md:py-12 relative z-10 text-center">
+                            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight mb-3 text-shadow-sm">葵涌堂 2026年讀經計劃</h1>
+                            <p className="text-nature-100 text-sm md:text-lg font-extrabold opacity-90">6月～10月</p>
+                            <p className="text-nature-100 text-sm md:text-lg font-extrabold opacity-90">剛強壯膽 ‧ 踐信力行</p>
+                        </div>
+                    </header>
+
+                    {/* 主要內容區 */}
+                    <main className="py-8 bg-[url('https://www.transparenttextures.com/patterns/always-grey.png')]">
+                        {isLoading ? (
+                            <div className="flex flex-col items-center justify-center h-64 text-nature-600">
+                                <i className="fa-solid fa-circle-notch fa-spin text-4xl mb-4"></i>
+                                <p>載入神的話語中...</p>
+                            </div>
+                        ) : (
+                            view === 'calendar' ? <CalendarView /> : <ReaderView />
+                        )}
+                    </main>
+                    
+                    {/* 頁腳預留外部連結空間 */}
+                    <footer className="bg-white border-t border-nature-100 py-8 mt-auto text-center text-gray-500 text-sm">
+                        <p>© 2026 葵涌堂. All rights reserved.</p>
+                        <div className="mt-4 flex justify-center gap-6">
+                            <a href="#" className="hover:text-nature-600 transition"><i className="fa-solid fa-video mr-1"></i> 講道影片</a>
+                            <a href="#" className="hover:text-nature-600 transition"><i className="fa-solid fa-book-open mr-1"></i> 更多釋經資源</a>
+                            <a href="#" className="hover:text-nature-600 transition"><i className="fa-solid fa-user-lock mr-1"></i> 行政登入 (開發中)</a>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
